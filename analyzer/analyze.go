@@ -76,6 +76,11 @@ func (a *Analyzer) buildProgram(path string) (*ssa.Program, error) {
 	prog, _ := packages(initial, ssa.GlobalDebug|ssa.BareInits)
 	prog.Build()
 
+	funcs := ssautil.AllFunctions(prog)
+	for fn := range funcs {
+		a.logger.Debug("find function: %s", fn.Name())
+	}
+
 	return prog, nil
 }
 
@@ -98,7 +103,7 @@ func (a *Analyzer) analyzePackage(pkg *ssa.Package) {
 
 	path := pkg.Pkg.Path()
 	if firstPath := strings.Split(path, "/")[0]; strings.Contains(firstPath, ".") {
-		a.logger.Info("find non-built-in package: %s", path)
+		a.logger.Trace("find non-built-in package: %s", path)
 	}
 
 	for _, member := range pkg.Members {
@@ -116,6 +121,7 @@ func (a *Analyzer) analyzeFunction(fn *ssa.Function) {
 				// TODO try DPS
 				if callee := i.Call.StaticCallee(); callee != nil {
 					a.logger.Debug("call %s -> %s", fn.Name(), callee.Name())
+					a.analyzeFunction(callee)
 				}
 			}
 		}
