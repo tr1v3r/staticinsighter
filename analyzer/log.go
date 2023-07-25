@@ -15,6 +15,8 @@ const (
 	WarnLevel
 	ErrorLevel
 	FatalLevel
+
+	DateTime = "2006-01-02 15:04:05"
 )
 
 func (l Level) String() string {
@@ -33,6 +35,25 @@ func (l Level) String() string {
 		return "Fatal"
 	default:
 		return ""
+	}
+}
+
+func (l Level) Color() int {
+	switch l {
+	case TraceLevel:
+		return 45
+	case DebugLevel:
+		return 39
+	case InfoLevel:
+		return 33
+	case WarnLevel:
+		return 148
+	case ErrorLevel:
+		return 161
+	case FatalLevel:
+		return 160
+	default:
+		return 0
 	}
 }
 
@@ -69,7 +90,6 @@ func (l *BuiltinLogger) Debug(format string, v ...any) {
 	}
 	fmt.Printf(l.format(DebugLevel, format), v...)
 }
-
 func (l *BuiltinLogger) Info(format string, v ...any) {
 	if !l.allowLevel(InfoLevel) {
 		return
@@ -96,5 +116,5 @@ func (l *BuiltinLogger) Fatal(format string, v ...any) {
 }
 
 func (l *BuiltinLogger) format(level Level, format string) string {
-	return fmt.Sprintf("[%s]%s %s\n", strings.ToUpper(level.String()), time.Now().Format(time.DateTime), format)
+	return fmt.Sprintf("\033[38;5;%dm%s [%s]%s\033[0m\n", level.Color(), time.Now().Format(DateTime), strings.ToUpper(level.String()), format)
 }
