@@ -22,6 +22,8 @@ type Analyzer struct {
 	ctx context.Context
 
 	*Configure
+
+	funcs map[*ssa.Function]bool
 }
 
 // WithContext set analyzer context
@@ -38,24 +40,28 @@ func (a Analyzer) WithConfig() *Analyzer {
 // Analyze analyze project
 func (a *Analyzer) Analyze(path string) error {
 	a.logger.Info("analyzing path %s", path)
-	defer func(s time.Time) { a.logger.Info("analyze path %s program cost: %s", path, time.Since(s)) }(time.Now())
+	defer func(s time.Time) { a.logger.Info("analyze program cost: %s", time.Since(s)) }(time.Now())
 
 	prog, err := a.buildProgram(path)
 	if err != nil {
 		return fmt.Errorf("build program fail: %w", err)
 	}
 
-	a.logger.Info("analyzing all packages...")
-	defer func(s time.Time) { a.logger.Info("analyze all packages cost: %s", time.Since(s)) }(time.Now())
-	for _, pkg := range prog.AllPackages() {
-		a.analyzePackage(pkg)
-	}
+	a.logger.Info("analyzing functions...")
+	defer func(s time.Time) { a.logger.Info("analyze all functions cost: %s", time.Since(s)) }(time.Now())
+	a.matchFunctions(prog)
+
+	// a.logger.Info("analyzing all packages...")
+	// defer func(s time.Time) { a.logger.Info("analyze all packages cost: %s", time.Since(s)) }(time.Now())
+	// for _, pkg := range prog.AllPackages() {
+	// 	a.analyzePackage(pkg)
+	// }
 	return nil
 }
 
 func (a *Analyzer) buildProgram(path string) (*ssa.Program, error) {
-	a.logger.Debug("building ssa program...")
-	defer func(s time.Time) { a.logger.Debug("build ssa program cost: %s", time.Since(s)) }(time.Now())
+	a.logger.Info("building ssa program...")
+	defer func(s time.Time) { a.logger.Info("build ssa program cost: %s", time.Since(s)) }(time.Now())
 
 	initial, err := a.loadAST(path)
 	if err != nil {
@@ -76,11 +82,6 @@ func (a *Analyzer) buildProgram(path string) (*ssa.Program, error) {
 	prog, _ := packages(initial, ssa.GlobalDebug|ssa.BareInits)
 	prog.Build()
 
-	funcs := ssautil.AllFunctions(prog)
-	for fn := range funcs {
-		a.logger.Debug("find function: %s", fn.Name())
-	}
-
 	return prog, nil
 }
 
@@ -95,6 +96,17 @@ func (a *Analyzer) loadAST(path string) ([]*packages.Package, error) {
 		Dir:     dir,
 	}
 	return packages.Load(cfg, path)
+}
+
+func (a *Analyzer) matchFunctions(prog *ssa.Program) {
+	funcs := ssautil.AllFunctions(prog)
+	for fn := range funcs {
+		if MatchHandler(fn.Signature.Params().String(), fn.Signature.Results().String()) {
+			path, funcName := fn.Pkg.Pkg.Path(), fn.Name()
+			a.logger.Debug("match handler: %s.%s%s %s", path, funcName, fn.Signature.Params().String(), fn.Signature.Results().String())
+			a.analyzeFunction(fn)
+		}
+	}
 }
 
 func (a *Analyzer) analyzePackage(pkg *ssa.Package) {
@@ -114,11 +126,15 @@ func (a *Analyzer) analyzePackage(pkg *ssa.Package) {
 }
 
 func (a *Analyzer) analyzeFunction(fn *ssa.Function) {
+	if a.funcs[fn] {
+		return
+	}
+	a.funcs[fn] = true
+
 	for _, b := range fn.Blocks {
 		for _, instr := range b.Instrs {
 			switch i := instr.(type) {
 			case *ssa.Call:
-				// TODO try DPS
 				if callee := i.Call.StaticCallee(); callee != nil {
 					a.logger.Debug("call %s -> %s", fn.Name(), callee.Name())
 					a.analyzeFunction(callee)

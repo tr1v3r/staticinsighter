@@ -1,10 +1,18 @@
 package analyzer
 
-import "context"
+import (
+	"context"
+
+	"golang.org/x/tools/go/ssa"
+)
 
 // NewAnalyzer build a new analyzer
 func NewAnalyzer(ctx context.Context) *Analyzer {
-	return &Analyzer{ctx: ctx, Configure: defaultConfigure()}
+	return &Analyzer{
+		ctx:       ctx,
+		Configure: defaultConfigure(),
+		funcs:     make(map[*ssa.Function]bool),
+	}
 }
 
 // SetLogLevel set log level
