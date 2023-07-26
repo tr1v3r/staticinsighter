@@ -21,6 +21,6 @@ func SetLogLevel(level Level) {
 }
 
 // Analyze ...
-func Analyze(path string) error {
-	return defaultAnalyzer.Analyze(path)
+func Analyze(paths ...string) error {
+	return defaultAnalyzer.Analyze(paths...)
 }

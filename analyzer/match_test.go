@@ -14,7 +14,7 @@ func TestMatchHandler(t *testing.T) {
 	}
 
 	for _, item := range testdatas {
-		if MatchHandler(item.Param, item.Result) != item.expected {
+		if matcher.MatchHandler(item.Param, item.Result) != item.expected {
 			t.Errorf("match handler %s %s fail: expect: %t, got: %t", item.Param, item.Result, item.expected, !item.expected)
 		}
 	}

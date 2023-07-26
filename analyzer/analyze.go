@@ -38,7 +38,9 @@ func (a Analyzer) WithConfig() *Analyzer {
 }
 
 // Analyze analyze project
-func (a *Analyzer) Analyze(path string) error {
+func (a *Analyzer) Analyze(paths ...string) error {
+	path, _ := a.parsePaths(paths)
+
 	a.logger.Info("analyzing path %s", path)
 	defer func(s time.Time) { a.logger.Info("analyze program cost: %s", time.Since(s)) }(time.Now())
 
@@ -86,25 +88,41 @@ func (a *Analyzer) buildProgram(path string) (*ssa.Program, error) {
 }
 
 func (a *Analyzer) loadAST(path string) ([]*packages.Package, error) {
-	path, _ = filepath.Abs(path)
-	dir := filepath.Dir(path)
-	fset := token.NewFileSet()
-	cfg := &packages.Config{
+	var err error
+	path, err = filepath.Abs(strings.TrimSpace(path))
+	if err != nil {
+		return nil, fmt.Errorf("invalid path: %w", err)
+	}
+
+	if !strings.HasSuffix(path, "/...") {
+		path = filepath.Join(path, "...")
+	}
+
+	return packages.Load(&packages.Config{
 		Mode:    ^0,
 		Context: a.ctx,
-		Fset:    fset,
-		Dir:     dir,
-	}
-	return packages.Load(cfg, path)
+		Fset:    token.NewFileSet(),
+		Dir:     filepath.Dir(path),
+	}, path)
 }
 
 func (a *Analyzer) matchFunctions(prog *ssa.Program) {
 	funcs := ssautil.AllFunctions(prog)
 	for fn := range funcs {
-		if MatchHandler(fn.Signature.Params().String(), fn.Signature.Results().String()) {
-			path, funcName := fn.Pkg.Pkg.Path(), fn.Name()
-			a.logger.Debug("match handler: %s.%s%s %s", path, funcName, fn.Signature.Params().String(), fn.Signature.Results().String())
-			a.analyzeFunction(fn)
+		switch {
+		case matcher.MatchMain(fn.Name()) && fn.Blocks != nil:
+			a.logger.Debug("match main: (%s).%s", fn.Pkg.Pkg.Path(), fn.Name())
+		case matcher.MatchInit(fn.Name()) && fn.Blocks != nil:
+			a.logger.Debug("match init: (%s).%s", fn.Pkg.Pkg.Path(), fn.Name())
+		case matcher.MatchHandler(fn.Signature.Params().String(), fn.Signature.Results().String()):
+			a.logger.Debug("match handler: (%s).%s%s %s",
+				fn.Pkg.Pkg.Path(), fn.Name(), fn.Signature.Params().String(), fn.Signature.Results().String())
+		case matcher.MatchSource(fn.Signature.Params().String(), fn.Signature.Results().String()):
+			a.logger.Debug("match source: (%s).%s%s %s",
+				fn.Pkg.Pkg.Path(), fn.Name(), fn.Signature.Params().String(), fn.Signature.Results().String())
+		case matcher.MatchSink(fn.Signature.Params().String(), fn.Signature.Results().String()):
+			a.logger.Debug("match handler: (%s).%s%s %s",
+				fn.Pkg.Pkg.Path(), fn.Name(), fn.Signature.Params().String(), fn.Signature.Results().String())
 		}
 	}
 }
@@ -141,5 +159,16 @@ func (a *Analyzer) analyzeFunction(fn *ssa.Function) {
 				}
 			}
 		}
+	}
+}
+
+func (a Analyzer) parsePaths(paths []string) (path, entry string) {
+	switch len(paths) {
+	case 1:
+		return paths[0], ""
+	case 2:
+		return paths[0], paths[1]
+	default:
+		return "", ""
 	}
 }
