@@ -3,6 +3,7 @@ package analyzer
 import (
 	"context"
 
+	"github.com/riverchu/pkg/log"
 	"golang.org/x/tools/go/ssa"
 )
 
@@ -16,7 +17,7 @@ func NewAnalyzer(ctx context.Context) *Analyzer {
 }
 
 // SetLogLevel set log level
-func SetLogLevel(level Level) {
+func SetLogLevel(level log.Level) {
 	defaultAnalyzer.Configure.logger.SetLevel(level)
 }
 

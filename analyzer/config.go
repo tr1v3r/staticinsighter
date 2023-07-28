@@ -1,19 +1,21 @@
 package analyzer
 
+import "github.com/riverchu/pkg/log"
+
 func defaultConfigure() *Configure {
 	return &Configure{
-		logger: defaultLogger(),
+		logger: log.NewLogger(),
 	}
 }
 
 type Configure struct {
-	logger Logger
+	logger log.Logger
 
 	Mode Mode
 }
 
 // WithLogger set analyzer logger
-func (c *Configure) WithLogger(logger Logger) *Configure {
+func (c *Configure) WithLogger(logger log.Logger) *Configure {
 	c.logger = logger
 	return c
 }

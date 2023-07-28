@@ -1,3 +1,5 @@
+github.com/riverchu/pkg v0.0.17 h1:lneDDBFEGeho/+Lm9lyQtWVdBepjY5/CnRh90/1VcIM=
+github.com/riverchu/pkg v0.0.17/go.mod h1:NB8UZ+BMT2zpF7PtExlWDGTgV9UX7YKaZ05Vf4xAs/4=
 golang.org/x/mod v0.12.0 h1:rmsUpXtvNzj340zd98LZ4KntptpfRHwpFOHG188oHXc=
 golang.org/x/mod v0.12.0/go.mod h1:iBbtSCu2XBx23ZKBPSOrRkjjQPZFPuis4dIYUhu/chs=
 golang.org/x/sync v0.3.0 h1:ftCYgMx6zT/asHUrPw8BLLscYtGznsLAnjq5RH9P66E=

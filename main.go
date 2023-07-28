@@ -2,7 +2,8 @@ package main
 
 import (
 	"flag"
-	"log"
+
+	"github.com/riverchu/pkg/log"
 
 	"staticinsighter/analyzer"
 )
@@ -13,8 +14,8 @@ func main() {
 	var entry = flag.String("entry", "", "specify entry of project")
 	flag.Parse()
 
-	analyzer.SetLogLevel(analyzer.DebugLevel)
+	analyzer.SetLogLevel(log.DebugLevel)
 	if err := analyzer.Analyze(*path, *entry); err != nil {
-		log.Fatalf("analyze fail: %s", err)
+		log.Fatal("analyze fail: %s", err)
 	}
 }
