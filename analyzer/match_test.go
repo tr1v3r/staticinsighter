@@ -11,6 +11,7 @@ func TestMatchHandler(t *testing.T) {
 	}{
 		{"(c context.Context, ctx *app.RequestContext)", "()", true},
 		{"(c context.Context, ctx *github.com/cloudwego/hertz/pkg/app.RequestContext)", "()", true},
+		{"(c *hertz.RequestContext)", "()", true},
 	}
 
 	for _, item := range testdatas {

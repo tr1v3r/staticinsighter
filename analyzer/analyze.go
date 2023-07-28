@@ -140,7 +140,17 @@ func (a *Analyzer) MatchFunctions(prog *ssa.Program) (*Functions, error) {
 func (a *Analyzer) analyzeFunctions(funcs *Functions) {
 	// analyze init and main functions
 	// find all handlers
-	a.analyzeInitAndMain(funcs)
+	handlers := a.analyzeInitAndMain(funcs)
+	if len(handlers) == 0 {
+		a.logger.Info("active handlers not found")
+		return
+	}
+
+	if a.CheckMode(ModeDebug) {
+		for _, handler := range handlers {
+			a.logger.Debug("find active handlers: %s", handler.Name())
+		}
+	}
 
 	// deep visit handler
 	// remove nested handlers
@@ -163,45 +173,6 @@ func (a *Analyzer) analyzeHandlers(funcs *Functions) {
 	for fn := range funcs.mainFuncs {
 		_ = fn
 	}
-}
-
-func (a *Analyzer) findHandler(funcs *Functions, fn *ssa.Function) (handlers []*ssa.Function) {
-	for _, b := range fn.Blocks {
-		for _, instr := range b.Instrs {
-			switch i := instr.(type) {
-			case *ssa.Call:
-				if callee := i.Call.StaticCallee(); callee != nil {
-					// a.logger.Debug("call %s -> %s", fn.Name(), callee.Name())
-					for _, arg := range i.Call.Args {
-						// a.logger.Debug("call %s -> %s, %s, %s", callee.Name(), arg.Name(), arg.String(), arg.Type())
-						if sl, ok := arg.(*ssa.Slice); ok {
-							_ = sl
-						}
-						if ct, ok := arg.(*ssa.ChangeType); ok {
-							if fn, ok := ct.X.(*ssa.Function); ok {
-								if funcs.hasHandler(fn) {
-									a.logger.Info("find active handler: %s", fn)
-								}
-							}
-						}
-						if fn, ok := arg.(*ssa.Function); ok {
-							fmt.Printf("\tFound function: %v\n", fn.String())
-						}
-						if mi, ok := arg.(*ssa.MakeInterface); ok {
-							if fn, ok := mi.X.(*ssa.Function); ok {
-								fmt.Printf("\tFound function: %v\n", fn.String())
-							}
-						}
-					}
-
-					a.findHandler(funcs, callee)
-				}
-			case *ssa.Slice:
-				i.Name()
-			}
-		}
-	}
-	return
 }
 
 func (a *Analyzer) analyzeFunction(fn *ssa.Function) {

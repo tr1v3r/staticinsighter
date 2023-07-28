@@ -9,6 +9,7 @@ var (
 	// (c context.Context, ctx *app.RequestContext)
 	handlerSigRules = []SigRule{
 		{"hertz", "", `^\([\w\s]*context\.Context,[\w\s]*\*[\w./]*app.RequestContext\)$`, `^\(\)$`},
+		{"hertz", "", `^\([\w\s]*\*[\w./]*hertz.RequestContext\)$`, `^\(\)$`},
 	}
 	sourceSigRules = []SigRule{}
 	sinkSigRules   = []SigRule{}
