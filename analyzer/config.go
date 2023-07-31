@@ -16,7 +16,7 @@ const (
 	ModeUltimate
 )
 
-func defaultConfigure() *Configure {
+func NewConfigure() *Configure {
 	return &Configure{
 		logger: log.NewLogger(),
 	}
@@ -26,6 +26,19 @@ type Configure struct {
 	logger log.Logger
 
 	Mode Mode
+
+	HandlerSigRules []SigRule
+	SourceSigRules  []SigRule
+	SinkSigRules    []SigRule
+}
+
+func (c *Configure) Init() *Configure {
+	// load rules
+	c.HandlerSigRules = handlerSigRules
+	c.SourceSigRules = sourceSigRules
+	c.SinkSigRules = sinkSigRules
+
+	return c
 }
 
 // WithLogger set analyzer logger

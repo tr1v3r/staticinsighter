@@ -14,13 +14,36 @@ import (
 )
 
 // defaultAnalyzer default analyzer
-var defaultAnalyzer = NewAnalyzer(context.Background())
+var defaultAnalyzer, _ = NewAnalyzer(context.Background(), NewConfigure().Init())
+
+// NewAnalyzer build a new analyzer
+func NewAnalyzer(ctx context.Context, cfg *Configure) (*Analyzer, error) {
+	matcher := NewMatcher()
+	if err := matcher.LoadRules(cfg.HandlerSigRules, cfg.SourceSigRules, cfg.SinkSigRules); err != nil {
+		return nil, fmt.Errorf("load rule fail: %w", err)
+	}
+
+	return &Analyzer{
+		ctx: ctx,
+
+		Configure: cfg,
+		Matcher:   matcher,
+
+		// TODO collect func info
+		Functions: NewFuncitons(),
+		chains:    nil,
+	}, nil
+}
 
 // Analyzer static code analyzer
 type Analyzer struct {
 	ctx context.Context
 
 	*Configure
+	*Matcher
+
+	*Functions
+	chains []*Chain
 }
 
 // WithContext set analyzer context
@@ -28,9 +51,6 @@ func (a Analyzer) WithContext(ctx context.Context) *Analyzer {
 	a.ctx = ctx
 	return &a
 }
-
-// WithConfig set analyzer config
-func (a Analyzer) WithConfig() *Analyzer { return &a }
 
 // Analyze analyze project
 func (a *Analyzer) Analyze(paths ...string) error {
@@ -41,32 +61,33 @@ func (a *Analyzer) Analyze(paths ...string) error {
 	a.logger.Info("analyzing path %s", path)
 	defer func(s time.Time) { a.logger.Info("analyze program cost: %s", time.Since(s)) }(time.Now())
 
+	// build SSA program
 	prog, err := a.buildProgram(path)
 	if err != nil {
 		return fmt.Errorf("build program fail: %w", err)
 	}
 
-	funcs, err := a.MatchFunctions(prog)
+	// collect info
+	handlers, err := a.CollectRiskyHandlers(prog)
 	if err != nil {
-		return fmt.Errorf("match functions fail: %w", err)
+		return fmt.Errorf("analyze packages fail: %w", err)
 	}
 
 	if a.CheckMode(ModeDebug) {
-		a.PrintFuncs(funcs)
+		a.printAllHandlers(prog, handlers)
 	}
 
-	if len(funcs.handlerFuncs) == 0 {
-		a.logger.Info("handlers not found")
-		return nil
+	// analyze taint chains
+	chains, err := a.walkChains(handlers...)
+	if err != nil {
+		return fmt.Errorf("walk chains fail: %w", err)
+	}
+	if a.CheckMode(ModeDebug) {
+		for _, chain := range chains {
+			a.logger.CtxDebug(a.ctx, chain.Output())
+		}
 	}
 
-	a.analyzeFunctions(funcs)
-
-	// a.logger.Info("analyzing all packages...")
-	// defer func(s time.Time) { a.logger.Info("analyze all packages cost: %s", time.Since(s)) }(time.Now())
-	// for _, pkg := range prog.AllPackages() {
-	// 	a.analyzePackage(pkg)
-	// }
 	return nil
 }
 
@@ -90,7 +111,7 @@ func (a *Analyzer) buildProgram(path string) (*ssa.Program, error) {
 	default:
 		packages = ssautil.Packages
 	}
-	prog, _ := packages(initial, ssa.GlobalDebug|ssa.BareInits)
+	prog, _ := packages(initial, ssa.GlobalDebug|ssa.BareInits /*|ssa.PrintFunctions*/)
 	prog.Build()
 
 	return prog, nil
@@ -115,11 +136,11 @@ func (a *Analyzer) loadAST(path string) ([]*packages.Package, error) {
 	}, path)
 }
 
-func (a *Analyzer) MatchFunctions(prog *ssa.Program) (*Functions, error) {
-	a.logger.Info("matching functions...")
-	defer func(s time.Time) { a.logger.Info("match all functions cost: %s", time.Since(s)) }(time.Now())
-	return NewFuncitons().Match(prog), nil
-}
+// func (a *Analyzer) MatchFunctions(prog *ssa.Program) (*Functions, error) {
+// 	a.logger.Info("matching functions...")
+// 	defer func(s time.Time) { a.logger.Info("match all functions cost: %s", time.Since(s)) }(time.Now())
+// 	return NewFuncitons().Match(prog), nil
+// }
 
 // func (a *Analyzer) analyzePackage(pkg *ssa.Package) {
 // 	a.logger.Trace("analyzing package (%s)...", pkg.Pkg.Path())
@@ -136,58 +157,6 @@ func (a *Analyzer) MatchFunctions(prog *ssa.Program) (*Functions, error) {
 // 		}
 // 	}
 // }
-
-func (a *Analyzer) analyzeFunctions(funcs *Functions) {
-	// analyze init and main functions
-	// find all handlers
-	handlers := a.analyzeInitAndMain(funcs)
-	if len(handlers) == 0 {
-		a.logger.Info("active handlers not found")
-		return
-	}
-
-	if a.CheckMode(ModeDebug) {
-		for _, handler := range handlers {
-			a.logger.Debug("find active handlers: %s", handler.Name())
-		}
-	}
-
-	// deep visit handler
-	// remove nested handlers
-	// detect if handler cg has source and sink
-
-	// find taint code flow
-}
-
-func (a *Analyzer) analyzeInitAndMain(funcs *Functions) (handlers []*ssa.Function) {
-	for fn := range funcs.initFuncs {
-		handlers = append(handlers, a.findHandler(funcs, fn)...)
-	}
-	for fn := range funcs.mainFuncs {
-		handlers = append(handlers, a.findHandler(funcs, fn)...)
-	}
-	return
-}
-
-func (a *Analyzer) analyzeHandlers(funcs *Functions) {
-	for fn := range funcs.mainFuncs {
-		_ = fn
-	}
-}
-
-func (a *Analyzer) analyzeFunction(fn *ssa.Function) {
-	for _, b := range fn.Blocks {
-		for _, instr := range b.Instrs {
-			switch i := instr.(type) {
-			case *ssa.Call:
-				if callee := i.Call.StaticCallee(); callee != nil {
-					a.logger.Debug("call %s -> %s", fn.Name(), callee.Name())
-					a.analyzeFunction(callee)
-				}
-			}
-		}
-	}
-}
 
 func (*Analyzer) parsePaths(paths []string) (path, entry string) {
 	switch len(paths) {
