@@ -1,47 +1,71 @@
 package analyzer
 
 import (
+	"bytes"
+
 	"golang.org/x/tools/go/ssa"
 	"golang.org/x/tools/go/ssa/ssautil"
 )
 
-func (a *Analyzer) PrintFuncs(funcs *Functions) {
-	var printFuncInfo = func(typ string, funcs map[*ssa.Function]bool) {
-		for fn := range funcs {
-			a.logger.Debug("match %s: (%s).%s%s %s",
-				typ, fn.Pkg.Pkg.Path(), fn.Name(),
-				fn.Signature.Params().String(), fn.Signature.Results().String())
-		}
-	}
-
-	printFuncInfo("init", funcs.initFuncs)
-	printFuncInfo("main", funcs.mainFuncs)
-	printFuncInfo("handler", funcs.handlerFuncs)
-	printFuncInfo("source", funcs.sourceFuncs)
-	printFuncInfo("sink", funcs.sinkFuncs)
-}
-
-func (a *Analyzer) printAllHandlers(prog *ssa.Program, handlers []*ssa.Function) {
-	allHandlers := make(map[*ssa.Function]bool)
+func (a *Analyzer) printAllUsefulFunc(prog *ssa.Program) {
+	var (
+		inits    = make(map[*ssa.Function]bool)
+		mains    = make(map[*ssa.Function]bool)
+		handlers = make(map[*ssa.Function]bool)
+		sources  = make(map[*ssa.Function]bool)
+		sinks    = make(map[*ssa.Function]bool)
+	)
 	for fn := range ssautil.AllFunctions(prog) {
 		// if fn.Pkg == nil {
 		// 	continue
 		// }
-		if a.MatchHandler(fn) {
-			allHandlers[fn] = true
+		switch {
+		case a.MatchInit(fn):
+			inits[fn] = true
+		case a.MatchMain(fn):
+			mains[fn] = true
+		case a.MatchHandler(fn):
+			handlers[fn] = true
+		case a.MatchSource(fn):
+			sources[fn] = true
+		case a.MatchSink(fn):
+			sinks[fn] = true
 		}
 	}
 
-	for _, handler := range handlers {
-		if !allHandlers[handler] {
-			a.logger.CtxDebug(a.ctx, "active handler %s not found in all funcs", handler.Name())
-			continue
+	for fn := range mains {
+		if a.mainFuncs[fn].Active() {
+			a.logger.CtxDebug(a.ctx, "find active entry: (%s).%s", fn.Pkg.Pkg.Path(), fn.Name())
+		} else {
+			a.logger.CtxDebug(a.ctx, "find unactive entry: (%s).%s", fn.Pkg.Pkg.Path(), fn.Name())
 		}
+	}
+	for fn := range inits {
+		if a.initFuncs[fn].Active() {
+			a.logger.CtxDebug(a.ctx, "find active entry: (%s).%s", fn.Pkg.Pkg.Path(), fn.Name())
+		} else {
+			a.logger.CtxTrace(a.ctx, "find unactive entry: (%s).%s", fn.Pkg.Pkg.Path(), fn.Name())
+		}
+	}
+	for fn := range handlers {
+		if a.handlerFuncs[fn].Risky() {
+			a.logger.CtxDebug(a.ctx, "find risky handler: (%s).%s", fn.Pkg.Pkg.Path(), fn.Name())
+		} else if a.handlerFuncs[fn].Active() {
+			a.logger.CtxDebug(a.ctx, "find active handler: (%s).%s", fn.Pkg.Pkg.Path(), fn.Name())
+		} else {
+			a.logger.CtxDebug(a.ctx, "find unactive handler: (%s).%s", fn.Pkg.Pkg.Path(), fn.Name())
+		}
+	}
+	for fn := range sources {
+		a.logger.CtxDebug(a.ctx, "find source: (%s).%s", fn.Pkg.Pkg.Path(), fn.Name())
+	}
+	for fn := range sinks {
+		a.logger.CtxDebug(a.ctx, "find sink: (%s).%s", fn.Pkg.Pkg.Path(), fn.Name())
+	}
+}
 
-		a.logger.CtxDebug(a.ctx, "risky handler %s", handler.Name())
-		delete(allHandlers, handler) // mark
-	}
-	for handler := range allHandlers {
-		a.logger.CtxDebug(a.ctx, "unactive handler %s", handler.Name())
-	}
+func (a *Analyzer) printSSAFunc(fn *ssa.Function) {
+	buf := bytes.NewBuffer(nil)
+	_, _ = fn.WriteTo(buf)
+	a.logger.CtxDebug(a.ctx, "ssa func: %s", buf.String())
 }

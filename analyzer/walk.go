@@ -4,18 +4,11 @@ import (
 	"golang.org/x/tools/go/ssa"
 )
 
-func (a *Analyzer) uniq(funcs []*ssa.Function) (result []*ssa.Function) {
-	m := make(map[*ssa.Function]bool, len(funcs))
-	for _, fn := range funcs {
-		m[fn] = true
+func (a *Analyzer) walk(enstries ...*ssa.Function) ([]*Chain, error) {
+	for _, fn := range enstries {
+		if a.CheckMode(ModeDebug) {
+			a.printSSAFunc(fn)
+		}
 	}
-	delete(m, nil)
-	for fn := range m {
-		result = append(result, fn)
-	}
-	return result
-}
-
-func (a *Analyzer) walkChains(funcs ...*ssa.Function) ([]*Chain, error) {
 	return nil, nil
 }

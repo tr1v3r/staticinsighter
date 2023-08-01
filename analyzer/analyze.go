@@ -29,7 +29,6 @@ func NewAnalyzer(ctx context.Context, cfg *Configure) (*Analyzer, error) {
 		Configure: cfg,
 		Matcher:   matcher,
 
-		// TODO collect func info
 		Functions: NewFuncitons(),
 		chains:    nil,
 	}, nil
@@ -74,11 +73,11 @@ func (a *Analyzer) Analyze(paths ...string) error {
 	}
 
 	if a.CheckMode(ModeDebug) {
-		a.printAllHandlers(prog, handlers)
+		a.printAllUsefulFunc(prog)
 	}
 
 	// analyze taint chains
-	chains, err := a.walkChains(handlers...)
+	chains, err := a.walk(handlers...)
 	if err != nil {
 		return fmt.Errorf("walk chains fail: %w", err)
 	}
@@ -135,29 +134,6 @@ func (a *Analyzer) loadAST(path string) ([]*packages.Package, error) {
 		Dir:     filepath.Dir(path),
 	}, path)
 }
-
-// func (a *Analyzer) MatchFunctions(prog *ssa.Program) (*Functions, error) {
-// 	a.logger.Info("matching functions...")
-// 	defer func(s time.Time) { a.logger.Info("match all functions cost: %s", time.Since(s)) }(time.Now())
-// 	return NewFuncitons().Match(prog), nil
-// }
-
-// func (a *Analyzer) analyzePackage(pkg *ssa.Package) {
-// 	a.logger.Trace("analyzing package (%s)...", pkg.Pkg.Path())
-// 	defer func(s time.Time) { a.logger.Trace("analyze package (%s) cost: %s", pkg.Pkg.Path(), time.Since(s)) }(time.Now())
-
-// 	path := pkg.Pkg.Path()
-// 	if firstPath := strings.Split(path, "/")[0]; strings.Contains(firstPath, ".") {
-// 		a.logger.Trace("find non-built-in package: %s", path)
-// 	}
-
-// 	for _, member := range pkg.Members {
-// 		if fn, ok := member.(*ssa.Function); ok {
-// 			a.analyzeFunction(fn)
-// 		}
-// 	}
-// }
-
 func (*Analyzer) parsePaths(paths []string) (path, entry string) {
 	switch len(paths) {
 	case 1:

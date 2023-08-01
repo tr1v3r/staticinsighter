@@ -137,13 +137,8 @@ func (i *FuncSigInfo) Load(frame, nameReg, recvReg, paramReg, resultReg string) 
 }
 
 func (i *FuncSigInfo) Match(recv, name, param, result string) bool {
-	r := (i.Recv == nil || i.Recv.Match([]byte(recv)))
-	n := (i.Name == nil || i.Name.Match([]byte(name)))
-	p := (i.Param == nil || i.Param.Match([]byte(param)))
-	res := (i.Result == nil || i.Result.Match([]byte(result)))
-	return r && n && p && res
-	// return (i.Recv == nil || i.Recv.Match([]byte(recv))) &&
-	// 	(i.Name == nil || i.Name.Match([]byte(name))) &&
-	// 	(i.Param == nil || i.Param.Match([]byte(param))) &&
-	// 	(i.Result == nil || i.Result.Match([]byte(result)))
+	return (i.Recv == nil || i.Recv.Match([]byte(recv))) &&
+		(i.Name == nil || i.Name.Match([]byte(name))) &&
+		(i.Param == nil || i.Param.Match([]byte(param))) &&
+		(i.Result == nil || i.Result.Match([]byte(result)))
 }

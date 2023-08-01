@@ -13,6 +13,7 @@ func (a *Analyzer) CollectRiskyHandlers(prog *ssa.Program) ([]*ssa.Function, err
 
 	var dependencies = make(map[string]*ssa.Package, 1024)
 
+	// collect main packages and dependencies
 	var mainPkgs []*ssa.Package
 	for _, pkg := range prog.AllPackages() {
 		if pkg.Pkg.Name() != "main" {
@@ -32,11 +33,21 @@ func (a *Analyzer) CollectRiskyHandlers(prog *ssa.Program) ([]*ssa.Function, err
 
 	if a.CheckMode(ModeDebug) {
 		for _, fn := range entries {
-			a.logger.CtxDebug(a.ctx, "find entry: (%s).%s", fn.Pkg.Pkg.Path(), fn.Name())
+			if a.MatchMain(fn) {
+				a.AddActiveMain(fn)
+			} else {
+				a.AddActiveInit(fn)
+			}
 		}
 	}
 
-	return a.collectRiskyHandler(a.collectHandlers(entries...)...), nil
+	handlers := a.collectHandlers(entries...)
+	riskyHandlers := a.collectRiskyHandlers(handlers...)
+	if a.CheckMode(ModeDebug) {
+		a.AddActiveHandler(handlers...)
+		a.AddRiskyHandler(riskyHandlers...)
+	}
+	return riskyHandlers, nil
 }
 
 // collectMainAndInit collect main and init functions
@@ -78,7 +89,7 @@ func (a *Analyzer) collectHandlers(entries ...*ssa.Function) (handlers []*ssa.Fu
 			switch i := instr.(type) {
 			case *ssa.Call:
 				if callee := i.Call.StaticCallee(); callee != nil {
-					a.logger.CtxDebug(a.ctx, "collect handler from %s -> %s", instr.Parent().Name(), callee.Name())
+					a.logger.CtxTrace(a.ctx, "collect handler from %s -> %s", instr.Parent().Name(), callee.Name())
 
 					if a.MatchHandler(callee) {
 						handlers = append(handlers, callee)
@@ -99,7 +110,7 @@ func (a *Analyzer) collectHandlers(entries ...*ssa.Function) (handlers []*ssa.Fu
 	return a.uniq(handlers)
 }
 
-func (a *Analyzer) collectRiskyHandler(handlers ...*ssa.Function) []*ssa.Function {
+func (a *Analyzer) collectRiskyHandlers(handlers ...*ssa.Function) []*ssa.Function {
 	riskyHandlers := make([]*ssa.Function, 0, len(handlers))
 	for _, handler := range handlers {
 		var hasSource, hasSink bool
@@ -144,7 +155,7 @@ func (a *Analyzer) collectRiskyHandler(handlers ...*ssa.Function) []*ssa.Functio
 		if hasSource && hasSink {
 			riskyHandlers = append(riskyHandlers, handler)
 		} else if a.CheckMode(ModeDebug) {
-			a.logger.CtxDebug(a.ctx, "active but no risk handler %s", handler.Name())
+			a.logger.CtxDebug(a.ctx, "active no risk handler: %s", handler.Name())
 		}
 	}
 	return riskyHandlers
