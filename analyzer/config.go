@@ -18,7 +18,7 @@ const (
 
 func NewConfigure() *Configure {
 	return &Configure{
-		logger: log.NewLogger(),
+		logger: log.NewLogger(log.NewStreamHandler(log.InfoLevel)),
 	}
 }
 

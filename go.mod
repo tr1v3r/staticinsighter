@@ -3,7 +3,7 @@ module staticinsighter
 go 1.19
 
 require (
-	github.com/riverchu/pkg v0.0.17
+	github.com/riverchu/pkg v0.0.19-0.20230801154509-04a5aa108c8b
 	golang.org/x/tools v0.11.0
 )
 

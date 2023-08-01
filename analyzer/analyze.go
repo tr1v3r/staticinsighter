@@ -87,6 +87,7 @@ func (a *Analyzer) Analyze(paths ...string) error {
 		}
 	}
 
+	a.logger.Flush()
 	return nil
 }
 
