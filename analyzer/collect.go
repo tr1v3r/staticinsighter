@@ -1,15 +1,17 @@
 package analyzer
 
 import (
+	"sync"
 	"time"
 
+	"github.com/riverchu/pkg/pools"
 	"golang.org/x/tools/go/ssa"
 )
 
 // CollectRiskyHandlers collect risky handlers
 func (a *Analyzer) CollectRiskyHandlers(prog *ssa.Program) ([]*ssa.Function, error) {
-	a.logger.Info("collecting handlers...")
-	defer func(s time.Time) { a.logger.Info("collect handlers cost: %s", time.Since(s)) }(time.Now())
+	a.logger.CtxInfo(a.ctx, "collecting risky handlers...")
+	defer func(s time.Time) { a.logger.CtxInfo(a.ctx, "collect risky handlers cost: %s", time.Since(s)) }(time.Now())
 
 	var dependencies = make(map[string]*ssa.Package, 1024)
 
@@ -26,10 +28,13 @@ func (a *Analyzer) CollectRiskyHandlers(prog *ssa.Program) ([]*ssa.Function, err
 	}
 
 	// collect init functions
+	a.logger.CtxInfo(a.ctx, "collecting main and init...")
+	s := time.Now()
 	var entries []*ssa.Function
 	for _, main := range mainPkgs {
 		entries = append(entries, a.collectMainAndInit(main, dependencies)...)
 	}
+	a.logger.CtxInfo(a.ctx, "collect main and init (%d) cost: %s", len(entries), time.Since(s))
 
 	if a.CheckMode(ModeDebug) {
 		for _, fn := range entries {
@@ -41,8 +46,12 @@ func (a *Analyzer) CollectRiskyHandlers(prog *ssa.Program) ([]*ssa.Function, err
 		}
 	}
 
-	handlers := a.collectHandlers(entries...)
-	riskyHandlers := a.collectRiskyHandlers(handlers...)
+	s = time.Now()
+	a.logger.CtxInfo(a.ctx, "collecting active handlers...")
+	handlers := a.collectActiveHandlers(entries...)
+	a.logger.CtxInfo(a.ctx, "collect active handlers (%d) cost: %s", len(handlers), time.Since(s))
+
+	riskyHandlers := a.filterRiskyHandlers(handlers...)
 	if a.CheckMode(ModeDebug) {
 		a.AddActiveHandler(handlers...)
 		a.AddRiskyHandler(riskyHandlers...)
@@ -82,8 +91,8 @@ func (a *Analyzer) collectMainAndInit(pkg *ssa.Package, dependencies map[string]
 	return
 }
 
-// collectHandlers collect handlers
-func (a *Analyzer) collectHandlers(entries ...*ssa.Function) (handlers []*ssa.Function) {
+// collectActiveHandlers collect handlers
+func (a *Analyzer) collectActiveHandlers(entries ...*ssa.Function) (handlers []*ssa.Function) {
 	for _, entry := range entries {
 		a.visitInstr(func(instr ssa.Instruction) (stop bool) {
 			switch i := instr.(type) {
@@ -99,7 +108,7 @@ func (a *Analyzer) collectHandlers(entries ...*ssa.Function) (handlers []*ssa.Fu
 					for _, arg := range i.Call.Args {
 						handlers = append(handlers, a.matchFunc(arg, a.MatchHandler))
 					}
-					handlers = append(handlers, a.collectHandlers(callee)...)
+					handlers = append(handlers, a.collectActiveHandlers(callee)...)
 				}
 			default:
 				handlers = append(handlers, a.matchFunc(i, a.MatchHandler))
@@ -110,59 +119,86 @@ func (a *Analyzer) collectHandlers(entries ...*ssa.Function) (handlers []*ssa.Fu
 	return a.uniq(handlers)
 }
 
-func (a *Analyzer) collectRiskyHandlers(handlers ...*ssa.Function) []*ssa.Function {
+func (a *Analyzer) filterRiskyHandlers(handlers ...*ssa.Function) []*ssa.Function {
+	a.logger.CtxInfo(a.ctx, "filtering risky handlers...")
+	defer func(s time.Time) { a.logger.CtxInfo(a.ctx, "filter risky handlers cost: %s", time.Since(s)) }(time.Now())
+
+	// pool := pools.NewPool(runtime.NumCPU())
+	pool := pools.NewPool(1)
+
+	var mu sync.Mutex
 	riskyHandlers := make([]*ssa.Function, 0, len(handlers))
+
 	for _, handler := range handlers {
-		var hasSource, hasSink bool
+		pool.Wait()
+		go func(handler *ssa.Function) {
+			defer pool.Done()
+			r := NewRisk(handler)
+			a.visitInstr(a.cgVisitor(r), handler)
+			r.Finish()
 
-		var visit func(instr ssa.Instruction) (stop bool)
-		visit = func(instr ssa.Instruction) (stop bool) {
-			switch i := instr.(type) {
-			case *ssa.Call:
-				if callee := i.Call.StaticCallee(); callee != nil {
-					if a.MatchSource(callee) {
-						hasSource = true
-					} else if a.MatchSink(callee) {
-						hasSink = true
-					}
-
-					for _, arg := range i.Call.Args {
-						if a.matchFunc(arg, a.MatchSource) != nil {
-							hasSource = true
-						} else if a.matchFunc(arg, a.MatchSink) != nil {
-							hasSink = true
-						}
-					}
-					if hasSource && hasSink {
-						return true
-					}
-
-					a.visitInstr(visit, callee)
-				}
-			default:
-				if a.matchFunc(i, a.MatchSource) != nil {
-					hasSource = true
-				} else if a.matchFunc(i, a.MatchSink) != nil {
-					hasSink = true
-				}
+			if !r.Risky() {
+				return
 			}
-			return hasSource && hasSink
-		}
 
-		// detect source and sink
-		a.visitInstr(visit, handler)
-
-		if hasSource && hasSink {
+			mu.Lock()
+			defer mu.Unlock()
 			riskyHandlers = append(riskyHandlers, handler)
-		} else if a.CheckMode(ModeDebug) {
-			a.logger.CtxDebug(a.ctx, "active no risk handler: %s", handler.Name())
-		}
+		}(handler)
 	}
+	pool.WaitAll()
+
 	return riskyHandlers
 }
 
-func (*Analyzer) visitInstr(visit func(ssa.Instruction) (stop bool), fn *ssa.Function) {
-	if fn.Blocks == nil {
+type Visitor func(ssa.Instruction) (stop bool)
+
+func (a *Analyzer) cgVisitor(p *RiskInfo) Visitor {
+	return func(instr ssa.Instruction) (stop bool) {
+		switch i := instr.(type) {
+		case *ssa.Call:
+			if callee := i.Call.StaticCallee(); callee != nil {
+				var r = a.GetRisk(callee)
+				if r == nil { // has no record
+					switch {
+					case a.MatchSource(callee):
+						r = NewRiskSource(callee)
+						a.AddRisk(r)
+					case a.MatchSink(callee):
+						r = NewRiskSink(callee)
+						a.AddRisk(r)
+					default:
+						r = NewRisk(callee)
+						a.AddRisk(r)
+						a.visitInstr(a.cgVisitor(r), callee)
+						r.Finish()
+					}
+				} else { // has record
+					if !r.Done() {
+						// TODO fix dead lock when wait
+						// <-r.AsyncDone()
+						return false
+					}
+				}
+
+				if r.HasSource() || r.IsSource() {
+					p.AddSoucre(r)
+				}
+				if r.HasSink() || r.IsSink() {
+					p.AddSink(r)
+				}
+				// if detect risky, stop visit
+				if p.Risky() {
+					return true
+				}
+			}
+		}
+		return false
+	}
+}
+
+func (*Analyzer) visitInstr(visit Visitor, fn *ssa.Function) {
+	if fn == nil || fn.Blocks == nil {
 		return
 	}
 	for _, b := range fn.Blocks {

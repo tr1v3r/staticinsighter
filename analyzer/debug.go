@@ -2,12 +2,15 @@ package analyzer
 
 import (
 	"bytes"
+	"time"
 
 	"golang.org/x/tools/go/ssa"
 	"golang.org/x/tools/go/ssa/ssautil"
 )
 
 func (a *Analyzer) printAllUsefulFunc(prog *ssa.Program) {
+	a.logger.CtxDebug(a.ctx, "printing all useful funcs")
+	defer func(s time.Time) { a.logger.CtxDebug(a.ctx, "print useful funcs cost: %s", time.Since(s)) }(time.Now())
 	var (
 		inits    = make(map[*ssa.Function]bool)
 		mains    = make(map[*ssa.Function]bool)
@@ -67,5 +70,5 @@ func (a *Analyzer) printAllUsefulFunc(prog *ssa.Program) {
 func (a *Analyzer) printSSAFunc(fn *ssa.Function) {
 	buf := bytes.NewBuffer(nil)
 	_, _ = fn.WriteTo(buf)
-	a.logger.CtxDebug(a.ctx, "ssa func: %s", buf.String())
+	a.logger.CtxDebug(a.ctx, "ssa func: \n%s", buf.String())
 }

@@ -53,12 +53,15 @@ func (a Analyzer) WithContext(ctx context.Context) *Analyzer {
 
 // Analyze analyze project
 func (a *Analyzer) Analyze(paths ...string) error {
+	defer a.logger.Flush()
 	defer a.recover()
+
+	// TODO stop when context cancelled
 
 	path, _ := a.parsePaths(paths)
 
-	a.logger.Info("analyzing path %s", path)
-	defer func(s time.Time) { a.logger.Info("analyze program cost: %s", time.Since(s)) }(time.Now())
+	a.logger.CtxInfo(a.ctx, "analyzing path %s", path)
+	defer func(s time.Time) { a.logger.CtxInfo(a.ctx, "analyze program cost: %s", time.Since(s)) }(time.Now())
 
 	// build SSA program
 	prog, err := a.buildProgram(path)
@@ -66,7 +69,10 @@ func (a *Analyzer) Analyze(paths ...string) error {
 		return fmt.Errorf("build program fail: %w", err)
 	}
 
-	// collect info
+	// collect funcs info
+	// collect main/init funcs
+	// collect active handlers
+	// check if handlers call source and sink, if so, mark as risky handler
 	handlers, err := a.CollectRiskyHandlers(prog)
 	if err != nil {
 		return fmt.Errorf("analyze packages fail: %w", err)
@@ -87,13 +93,12 @@ func (a *Analyzer) Analyze(paths ...string) error {
 		}
 	}
 
-	a.logger.Flush()
 	return nil
 }
 
 func (a *Analyzer) buildProgram(path string) (*ssa.Program, error) {
-	a.logger.Info("building ssa program...")
-	defer func(s time.Time) { a.logger.Info("build ssa program cost: %s", time.Since(s)) }(time.Now())
+	a.logger.CtxInfo(a.ctx, "building ssa program...")
+	defer func(s time.Time) { a.logger.CtxInfo(a.ctx, "build ssa program cost: %s", time.Since(s)) }(time.Now())
 
 	initial, err := a.loadAST(path)
 	if err != nil {
