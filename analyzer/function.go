@@ -44,10 +44,16 @@ func (f *Functions) GetRisk(fn *ssa.Function) *RiskInfo {
 	defer f.mu.RUnlock()
 	return f.riskMap[fn]
 }
-func (f *Functions) AddRisk(r *RiskInfo) {
+func (f *Functions) AddRisk(r *RiskInfo) (newRisk bool) {
+	fn := r.Func()
+
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.riskMap[r.Func()] = r
+	if _, ok := f.riskMap[fn]; !ok {
+		f.riskMap[fn] = r
+		return true
+	}
+	return false
 }
 
 func (f *Functions) AddActiveInit(funcs ...*ssa.Function) {
@@ -126,19 +132,22 @@ var deadCh = func() chan struct{} {
 }()
 
 // NewRisk create new risk info for function node
-func NewRisk(fn *ssa.Function) *RiskInfo { return &RiskInfo{fn: fn, done: make(chan struct{})} }
+func NewRisk(fn *ssa.Function) *RiskInfo {
+	return &RiskInfo{fn: fn, done: make(chan struct{}), entries: make(map[*ssa.Function]bool)}
+}
 
 // NewRiskSource create source risk info, always done
 func NewRiskSource(fn *ssa.Function) *RiskInfo {
-	return &RiskInfo{fn: fn, isSource: true, done: deadCh}
+	return &RiskInfo{fn: fn, isSource: true, done: deadCh, entries: make(map[*ssa.Function]bool)}
 }
 
 // NewRiskSink create sink risk info, always done
 func NewRiskSink(fn *ssa.Function) *RiskInfo {
-	return &RiskInfo{fn: fn, isSink: true, done: deadCh}
+	return &RiskInfo{fn: fn, isSink: true, done: deadCh, entries: make(map[*ssa.Function]bool)}
 }
 
 type RiskInfo struct {
+	once sync.Once
 	done chan struct{} // mark analyze finish status
 
 	fn *ssa.Function
@@ -147,6 +156,7 @@ type RiskInfo struct {
 	isSource bool
 
 	mu      sync.RWMutex
+	entries map[*ssa.Function]bool
 	sinks   []*RiskInfo
 	sources []*RiskInfo
 }
@@ -179,6 +189,34 @@ func (r *RiskInfo) AddSink(risk *RiskInfo) {
 	defer r.mu.Unlock()
 	r.sinks = append(r.sinks, risk)
 }
+func (r *RiskInfo) Uniq() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.sources = r.uniq(r.sources)
+	r.sinks = r.uniq(r.sinks)
+}
+func (r *RiskInfo) uniq(data []*RiskInfo) []*RiskInfo {
+	var m = make(map[*RiskInfo]struct{}, len(data))
+	for _, r := range data {
+		m[r] = struct{}{}
+	}
+	var results = make([]*RiskInfo, 0, len(data))
+	for item := range m {
+		results = append(results, item)
+	}
+	return results
+}
+
+func (r *RiskInfo) Collected(entry *ssa.Function) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.entries[entry]
+}
+func (r *RiskInfo) RecordEntry(entry *ssa.Function) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.entries[entry] = true
+}
 
 func (r *RiskInfo) Done() bool {
 	select {
@@ -189,4 +227,4 @@ func (r *RiskInfo) Done() bool {
 	}
 }
 func (r *RiskInfo) AsyncDone() <-chan struct{} { return r.done }
-func (r *RiskInfo) Finish()                    { close(r.done) }
+func (r *RiskInfo) Finish()                    { r.once.Do(func() { close(r.done) }) }

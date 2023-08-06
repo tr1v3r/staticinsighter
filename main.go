@@ -14,6 +14,7 @@ func main() {
 	var entry = flag.String("entry", "", "specify entry of project")
 	flag.Parse()
 
+	defer log.Flush()
 	analyzer.SetMode(analyzer.ModeDebug)
 	if err := analyzer.Analyze(*path, *entry); err != nil {
 		log.Fatal("analyze fail: %s", err)

@@ -1,6 +1,7 @@
 package analyzer
 
 import (
+	"runtime"
 	"sync"
 	"time"
 
@@ -123,8 +124,10 @@ func (a *Analyzer) filterRiskyHandlers(handlers ...*ssa.Function) []*ssa.Functio
 	a.logger.CtxInfo(a.ctx, "filtering risky handlers...")
 	defer func(s time.Time) { a.logger.CtxInfo(a.ctx, "filter risky handlers cost: %s", time.Since(s)) }(time.Now())
 
-	// pool := pools.NewPool(runtime.NumCPU())
-	pool := pools.NewPool(1)
+	concurrency := runtime.NumCPU()
+	pool := pools.NewPool(concurrency)
+
+	a.logger.CtxInfo(a.ctx, "filter risky handlers in %d goroutines", concurrency)
 
 	var mu sync.Mutex
 	riskyHandlers := make([]*ssa.Function, 0, len(handlers))
@@ -134,7 +137,7 @@ func (a *Analyzer) filterRiskyHandlers(handlers ...*ssa.Function) []*ssa.Functio
 		go func(handler *ssa.Function) {
 			defer pool.Done()
 			r := NewRisk(handler)
-			a.visitInstr(a.cgVisitor(r), handler)
+			a.visitInstr(a.cgVisitor(handler, r), handler)
 			r.Finish()
 
 			if !r.Risky() {
@@ -153,7 +156,7 @@ func (a *Analyzer) filterRiskyHandlers(handlers ...*ssa.Function) []*ssa.Functio
 
 type Visitor func(ssa.Instruction) (stop bool)
 
-func (a *Analyzer) cgVisitor(p *RiskInfo) Visitor {
+func (a *Analyzer) cgVisitor(entry *ssa.Function, p *RiskInfo) Visitor {
 	return func(instr ssa.Instruction) (stop bool) {
 		switch i := instr.(type) {
 		case *ssa.Call:
@@ -162,23 +165,23 @@ func (a *Analyzer) cgVisitor(p *RiskInfo) Visitor {
 				if r == nil { // has no record
 					switch {
 					case a.MatchSource(callee):
-						r = NewRiskSource(callee)
-						a.AddRisk(r)
+						a.AddRisk(NewRiskSource(callee)) // avoid data race
+						r = a.GetRisk(callee)
 					case a.MatchSink(callee):
-						r = NewRiskSink(callee)
-						a.AddRisk(r)
+						a.AddRisk(NewRiskSink(callee)) // avoid data race
+						r = a.GetRisk(callee)
 					default:
-						r = NewRisk(callee)
-						a.AddRisk(r)
-						a.visitInstr(a.cgVisitor(r), callee)
+						a.AddRisk(NewRisk(callee))
+						r = a.GetRisk(callee)
+
+						a.visitInstr(a.cgVisitor(entry, r), callee)
 						r.Finish()
 					}
-				} else { // has record
-					if !r.Done() {
-						// TODO fix dead lock when wait
-						// <-r.AsyncDone()
-						return false
-					}
+				} else if !r.Done() && !r.Collected(entry) { // has record and not finished and not collected
+					r.RecordEntry(entry)
+
+					a.visitInstr(a.cgVisitor(entry, r), callee)
+					r.Finish()
 				}
 
 				if r.HasSource() || r.IsSource() {
