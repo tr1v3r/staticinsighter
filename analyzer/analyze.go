@@ -116,7 +116,7 @@ func (a *Analyzer) buildProgram(path string) (*ssa.Program, error) {
 	default:
 		packages = ssautil.Packages
 	}
-	prog, _ := packages(initial, ssa.GlobalDebug|ssa.BareInits /*|ssa.PrintFunctions*/)
+	prog, _ := packages(initial, ssa.BareInits)
 	prog.Build()
 
 	return prog, nil
@@ -134,7 +134,7 @@ func (a *Analyzer) loadAST(path string) ([]*packages.Package, error) {
 	}
 
 	return packages.Load(&packages.Config{
-		Mode:    ^0,
+		Mode:    packages.NeedName | packages.NeedImports | packages.NeedTypes | packages.NeedSyntax | packages.NeedTypesInfo,
 		Context: a.ctx,
 		Fset:    token.NewFileSet(),
 		Dir:     filepath.Dir(path),

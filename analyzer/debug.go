@@ -46,6 +46,8 @@ func (a *Analyzer) printAllUsefulFunc(prog *ssa.Program) {
 	for fn := range inits {
 		if a.initFuncs[fn].Active() {
 			a.logger.CtxDebug(a.ctx, "find active entry: (%s).%s", fn.Pkg.Pkg.Path(), fn.Name())
+		} else if fn.Pkg == nil {
+			a.logger.CtxTrace(a.ctx, "find unactive entry: (nil).%s", fn.Name())
 		} else {
 			a.logger.CtxTrace(a.ctx, "find unactive entry: (%s).%s", fn.Pkg.Pkg.Path(), fn.Name())
 		}
