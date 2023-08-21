@@ -123,6 +123,9 @@ func (a *Analyzer) buildProgram(path string) (*ssa.Program, error) {
 }
 
 func (a *Analyzer) loadAST(path string) ([]*packages.Package, error) {
+	a.logger.CtxDebug(a.ctx, "loading ast...")
+	defer func(s time.Time) { a.logger.CtxDebug(a.ctx, "load ast cost: %s", time.Since(s)) }(time.Now())
+
 	var err error
 	path, err = filepath.Abs(strings.TrimSpace(path))
 	if err != nil {
